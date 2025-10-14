@@ -1,0 +1,68 @@
+#!/bin/bash
+set -e
+set -x  # Enable debug output
+
+# Version 1.0 for Ollama Server
+
+# Ensure required commands are available
+command -v curl >/dev/null 2>&1 || { echo "curl is not installed"; exit 1; }
+
+# Change to source directory
+cd /tmp/src
+
+# List contents of /tmp/src for debugging
+echo "Contents of /tmp/src:"
+ls -la /tmp/src
+
+# Install Ollama
+echo "Installing Ollama..."
+curl -fsSL https://ollama.com/install.sh | sh || { echo "Failed to install Ollama"; exit 1; }
+
+# Recombine the split models.zip files if not already recombined
+if [ ! -f "/tmp/models.zip" ]; then
+    echo "Recombining models.zip from parts..."
+    cat /tmp/src/models.zip.part* > /tmp/models.zip || {
+        echo "Error: No se pudo recombinar models.zip"
+        exit 1
+    }
+fi
+
+# Extract models.zip using Python
+echo "Extracting models.zip to /models using Python..."
+python3 - <<EOF
+import zipfile
+import os
+
+zip_path = "/tmp/models.zip"
+extract_path = "/models"
+
+os.makedirs(extract_path, exist_ok=True)
+
+try:
+    with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+        zip_ref.extractall(extract_path)
+    print("Successfully extracted models.zip to /models")
+except Exception as e:
+    print(f"Error: No se pudo extraer models.zip: {e}")
+    exit(1)
+EOF
+
+# Verify extraction
+if [ ! -f "/models/blobs/sha256-a99b7f834d754b88f122d865f32758ba9f0994a83f8363df2c1e71c17605a025" ]; then
+    echo "Error: Blob sha256-a99b7f834d754b88f122d865f32758ba9f0994a83f8363df2c1e71c17605a025 not found after extraction"
+    ls -la /models
+    exit 1
+fi
+
+# Set environment variable for Ollama to use custom model path
+export OLLAMA_MODELS=/models
+
+# Verify model
+echo "Verifying Qwen2.5-VL:7b model..."
+ollama list | grep qwen2.5vl:7b || { echo "Model qwen2.5vl:7b not found"; exit 1; }
+
+# Set permissions for /models
+chown -R 1001:0 /models
+chmod -R g+rw /models
+
+echo "Assemble completed successfully."

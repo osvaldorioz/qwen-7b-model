@@ -2,10 +2,10 @@
 set -e
 set -x  # Enable debug output
 
-# Version 1.0 for Ollama Server
+# Version 1.2 for Ollama Server (qwen-7b-model)
 
 # Ensure required commands are available
-command -v curl >/dev/null 2>&1 || { echo "curl is not installed"; exit 1; }
+command -v python3 >/dev/null 2>&1 || { echo "python3 is not installed"; exit 1; }
 
 # Change to source directory
 cd /tmp/src
@@ -14,9 +14,19 @@ cd /tmp/src
 echo "Contents of /tmp/src:"
 ls -la /tmp/src
 
-# Install Ollama
-echo "Installing Ollama..."
-curl -fsSL https://ollama.com/install.sh | sh || { echo "Failed to install Ollama"; exit 1; }
+# Switch to root to perform privileged operations
+USER 0
+
+# Copy pre-downloaded Ollama binary
+echo "Copying pre-downloaded Ollama binary..."
+mkdir -p /usr/local/bin
+cp -v /tmp/src/bin/ollama /usr/local/bin/ollama
+chmod +x /usr/local/bin/ollama
+
+# Create /models directory with correct permissions
+mkdir -p /models
+chown 1001:0 /models
+chmod g+rw /models
 
 # Recombine the split models.zip files if not already recombined
 if [ ! -f "/tmp/models.zip" ]; then
@@ -36,8 +46,6 @@ import os
 zip_path = "/tmp/models.zip"
 extract_path = "/models"
 
-os.makedirs(extract_path, exist_ok=True)
-
 try:
     with zipfile.ZipFile(zip_path, 'r') as zip_ref:
         zip_ref.extractall(extract_path)
@@ -54,15 +62,22 @@ if [ ! -f "/models/blobs/sha256-a99b7f834d754b88f122d865f32758ba9f0994a83f8363df
     exit 1
 fi
 
+# Set permissions for /models
+chown -R 1001:0 /models
+chmod -R g+rw /models
+
+# Switch back to user 1001
+USER 1001
+
+# Verify Ollama binary
+echo "Verifying Ollama binary..."
+/usr/local/bin/ollama --version || { echo "Ollama binary not working"; exit 1; }
+
 # Set environment variable for Ollama to use custom model path
 export OLLAMA_MODELS=/models
 
 # Verify model
 echo "Verifying Qwen2.5-VL:7b model..."
-ollama list | grep qwen2.5vl:7b || { echo "Model qwen2.5vl:7b not found"; exit 1; }
-
-# Set permissions for /models
-chown -R 1001:0 /models
-chmod -R g+rw /models
+/usr/local/bin/ollama list | grep qwen2.5vl:7b || { echo "Model qwen2.5vl:7b not found"; exit 1; }
 
 echo "Assemble completed successfully."

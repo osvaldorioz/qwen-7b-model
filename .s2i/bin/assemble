@@ -2,7 +2,7 @@
 set -e
 set -x  # Enable debug output
 
-# Version 1.4 for Ollama Server (qwen-7b-model)
+# Version 1.5 for Ollama Server (qwen-7b-model)
 
 # Ensure required commands are available
 command -v python3 >/dev/null 2>&1 || { echo "python3 is not installed"; exit 1; }
@@ -14,15 +14,6 @@ cd /tmp/src
 echo "Contents of /tmp/src:"
 ls -la /tmp/src
 
-# Create directories in user-writable location
-mkdir -p /opt/app-root/bin
-mkdir -p /opt/app-root/models
-
-# Copy pre-downloaded Ollama binary to user-writable location
-echo "Copying pre-downloaded Ollama binary..."
-cp -v /tmp/src/bin/ollama /opt/app-root/bin/ollama
-chmod +x /opt/app-root/bin/ollama
-
 # Recombine the split models.zip files if not already recombined
 if [ ! -f "/tmp/models.zip" ]; then
     echo "Recombining models.zip from parts..."
@@ -32,8 +23,11 @@ if [ ! -f "/tmp/models.zip" ]; then
     }
 fi
 
-# Extract models.zip using Python to user-writable location
-echo "Extracting models.zip to /opt/app-root/models using Python..."
+# Create /opt/app-root/models directory with correct permissions
+mkdir -p /opt/app-root/models
+
+# Extract models.zip using Python, stripping the top 'models/' directory
+echo "Extracting models.zip to /opt/app-root/models using Python, stripping top directory..."
 python3 - <<EOF
 import zipfile
 import os
@@ -41,10 +35,21 @@ import os
 zip_path = "/tmp/models.zip"
 extract_path = "/opt/app-root/models"
 
+os.makedirs(extract_path, exist_ok=True)
+
 try:
     with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-        zip_ref.extractall(extract_path)
-    print("Successfully extracted models.zip to /opt/app-root/models")
+        for member in zip_ref.namelist():
+            # Skip directories and strip the top 'models/' folder
+            if not member.endswith('/'):
+                # Remove 'models/' prefix if present
+                target_name = member.split('/', 1)[-1] if member.startswith('models/') else member
+                if target_name:
+                    target_path = os.path.join(extract_path, target_name)
+                    os.makedirs(os.path.dirname(target_path), exist_ok=True)
+                    with zip_ref.open(member) as source, open(target_path, "wb") as target:
+                        target.write(source.read())
+    print("Successfully extracted models.zip to /opt/app-root/models, stripping top directory")
 except Exception as e:
     print(f"Error: No se pudo extraer models.zip: {e}")
     exit(1)
@@ -56,6 +61,12 @@ if [ ! -f "/opt/app-root/models/blobs/sha256-a99b7f834d754b88f122d865f32758ba9f0
     ls -la /opt/app-root/models
     exit 1
 fi
+
+# Copy pre-downloaded Ollama binary
+echo "Copying pre-downloaded Ollama binary..."
+mkdir -p /opt/app-root/bin
+cp -v /tmp/src/bin/ollama /opt/app-root/bin/ollama
+chmod +x /opt/app-root/bin/ollama
 
 # Verify Ollama binary
 echo "Verifying Ollama binary..."
